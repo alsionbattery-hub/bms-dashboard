@@ -1,0 +1,7 @@
+fastapi==0.115.2
+uvicorn[standard]==0.32.0
+spidev==3.6
+pydantic==2.9.2
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+numpy==2.1.2
