@@ -15,7 +15,7 @@ class EnergyAccumulator:
     def update(self, measurement: Measurement) -> AnalyticsSnapshot:
         if self._last_ts is not None:
             dt_hours = (measurement.timestamp - self._last_ts).total_seconds() / 3600.0
-            power_w = measurement.voltage_v * measurement.current_a
+            power_w = measurement.pack_voltage_v * measurement.current_a
             energy_wh = power_w * dt_hours
             if energy_wh >= 0:
                 self.total_discharge_energy_wh += energy_wh

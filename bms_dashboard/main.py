@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import asynccontextmanager, suppress
+from dataclasses import asdict
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
 from .analytics import EnergyAccumulator
 from .models import AnalyticsSnapshot, Measurement, MeasurementWithAnalytics
@@ -26,11 +28,7 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 reader = BMSReader(use_mock=USE_MOCK)
 accumulator = EnergyAccumulator()
 latest_measurement: Measurement | None = None
-latest_analytics = AnalyticsSnapshot(
-    total_charge_energy_wh=0.0,
-    total_discharge_energy_wh=0.0,
-    round_trip_efficiency_pct=0.0,
-)
+latest_analytics = AnalyticsSnapshot()
 
 
 async def poll_bms_loop() -> None:
@@ -63,23 +61,89 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="BMS Dashboard API", lifespan=lifespan)
 
 
-@app.get("/api/live", response_model=MeasurementWithAnalytics)
-async def api_live() -> MeasurementWithAnalytics:
+@app.get("/", response_class=HTMLResponse)
+async def dashboard() -> str:
+    return """
+<!doctype html>
+<html>
+  <head>
+    <meta charset=\"utf-8\" />
+    <title>BMS Dashboard</title>
+    <script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; background: #0f172a; color: #e2e8f0; }
+      .cards { display:grid; grid-template-columns:repeat(4,minmax(160px,1fr)); gap:12px; }
+      .card { background:#1e293b; padding:14px; border-radius:10px; }
+      .label { color:#94a3b8; font-size:12px; }
+      .value { font-size:24px; font-weight:600; }
+      .chart { background:#1e293b; padding:16px; border-radius:10px; margin-top:14px; }
+    </style>
+  </head>
+  <body>
+    <h2>L99BM114 BMS Dashboard (SPI via STEVAL-BMS1T)</h2>
+    <div class=\"cards\">
+      <div class=\"card\"><div class=\"label\">Pack Voltage</div><div class=\"value\" id=\"packV\">--</div></div>
+      <div class=\"card\"><div class=\"label\">Current</div><div class=\"value\" id=\"current\">--</div></div>
+      <div class=\"card\"><div class=\"label\">SOC</div><div class=\"value\" id=\"soc\">--</div></div>
+      <div class=\"card\"><div class=\"label\">Efficiency</div><div class=\"value\" id=\"eff\">--</div></div>
+    </div>
+    <div class=\"chart\"><canvas id=\"hist\"></canvas></div>
+
+    <script>
+      const ctx = document.getElementById('hist').getContext('2d');
+      const chart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: [], datasets: [
+          {label:'Pack Voltage (V)', data:[], borderColor:'#22d3ee'},
+          {label:'Current (A)', data:[], borderColor:'#f97316'}
+        ] },
+        options: { animation:false, scales:{x:{ticks:{color:'#cbd5e1'}}, y:{ticks:{color:'#cbd5e1'}}}, plugins:{legend:{labels:{color:'#e2e8f0'}}}}
+      });
+
+      async function refreshLive() {
+        const r = await fetch('/api/live');
+        const data = await r.json();
+        document.getElementById('packV').textContent = `${data.measurement.pack_voltage_v.toFixed(2)} V`;
+        document.getElementById('current').textContent = `${data.measurement.current_a.toFixed(2)} A`;
+        document.getElementById('soc').textContent = `${data.measurement.soc_pct.toFixed(1)} %`;
+        document.getElementById('eff').textContent = `${data.analytics.round_trip_efficiency_pct.toFixed(1)} %`;
+      }
+
+      async function refreshHistory() {
+        const r = await fetch('/api/history?limit=120');
+        const rows = await r.json();
+        chart.data.labels = rows.map(x => x.timestamp.substring(11,19));
+        chart.data.datasets[0].data = rows.map(x => x.pack_voltage_v);
+        chart.data.datasets[1].data = rows.map(x => x.current_a);
+        chart.update();
+      }
+
+      async function tick() {
+        await Promise.all([refreshLive(), refreshHistory()]);
+      }
+
+      tick();
+      setInterval(tick, 2000);
+    </script>
+  </body>
+</html>
+"""
+
+
+@app.get("/api/live")
+async def api_live() -> dict:
     if latest_measurement is None:
-        return MeasurementWithAnalytics(
-            measurement=Measurement(voltage_v=0, current_a=0, soc_pct=0, temperature_c=0),
-            analytics=latest_analytics,
-        )
-    return MeasurementWithAnalytics(measurement=latest_measurement, analytics=latest_analytics)
+        return asdict(MeasurementWithAnalytics(measurement=Measurement(), analytics=latest_analytics))
+    return asdict(MeasurementWithAnalytics(measurement=latest_measurement, analytics=latest_analytics))
 
 
-@app.get("/api/history", response_model=list[Measurement])
-async def api_history(limit: int = 500) -> list[Measurement]:
+@app.get("/api/history")
+async def api_history(limit: int = 500) -> list[dict]:
     async with SessionLocal() as session:
         rows = await get_measurements(session, limit=limit)
-    return list(rows)
+    return [asdict(r) for r in rows]
 
 
-@app.get("/api/analytics", response_model=AnalyticsSnapshot)
-async def api_analytics() -> AnalyticsSnapshot:
-    return latest_analytics
+@app.get("/api/analytics")
+async def api_analytics() -> dict:
+    return asdict(latest_analytics)
