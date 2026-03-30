@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import os
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -31,6 +32,32 @@ class L99BM114Config:
     reg_temp: int = 0x13
     reg_cell_base: int = 0x20
     cell_count: int = 14
+    pack_voltage_scale: float = 0.1
+    current_scale: float = 0.1
+    current_offset: float = -12.8
+    soc_scale: float = 0.5
+    temp_scale: float = 1.0
+    temp_offset: float = -40.0
+    cell_voltage_scale: float = 0.01
+
+    @classmethod
+    def from_env(cls) -> "L99BM114Config":
+        return cls(
+            device_id=int(os.getenv("BMS_DEVICE_ID", "0")),
+            reg_pack_voltage=int(os.getenv("BMS_REG_PACK_VOLTAGE", "0x10"), 0),
+            reg_current=int(os.getenv("BMS_REG_CURRENT", "0x11"), 0),
+            reg_soc=int(os.getenv("BMS_REG_SOC", "0x12"), 0),
+            reg_temp=int(os.getenv("BMS_REG_TEMP", "0x13"), 0),
+            reg_cell_base=int(os.getenv("BMS_REG_CELL_BASE", "0x20"), 0),
+            cell_count=int(os.getenv("BMS_CELL_COUNT", "14")),
+            pack_voltage_scale=float(os.getenv("BMS_PACK_V_SCALE", "0.1")),
+            current_scale=float(os.getenv("BMS_CURRENT_SCALE", "0.1")),
+            current_offset=float(os.getenv("BMS_CURRENT_OFFSET", "-12.8")),
+            soc_scale=float(os.getenv("BMS_SOC_SCALE", "0.5")),
+            temp_scale=float(os.getenv("BMS_TEMP_SCALE", "1.0")),
+            temp_offset=float(os.getenv("BMS_TEMP_OFFSET", "-40.0")),
+            cell_voltage_scale=float(os.getenv("BMS_CELL_V_SCALE", "0.01")),
+        )
 
 
 class L99BM114Protocol:
@@ -75,7 +102,7 @@ class BMSReader:
         use_mock: bool = False,
     ):
         self.spi_config = spi_config or SPIConfig()
-        self.bms_config = bms_config or L99BM114Config()
+        self.bms_config = bms_config or L99BM114Config.from_env()
         self.use_mock = use_mock
         self._spi = None
         self._protocol = L99BM114Protocol()
@@ -120,13 +147,24 @@ class BMSReader:
             )
 
         cell_voltages = [
-            self._read_register_scaled(self.bms_config.reg_cell_base + idx, scale=0.01)
+            self._read_register_scaled(self.bms_config.reg_cell_base + idx, scale=self.bms_config.cell_voltage_scale)
             for idx in range(self.bms_config.cell_count)
         ]
-        pack_voltage_v = self._read_register_scaled(self.bms_config.reg_pack_voltage, scale=0.1)
-        current_a = self._read_register_scaled(self.bms_config.reg_current, scale=0.1, offset=-12.8)
-        soc_pct = self._read_register_scaled(self.bms_config.reg_soc, scale=0.5)
-        temperature_c = self._read_register_scaled(self.bms_config.reg_temp, scale=1.0, offset=-40.0)
+        pack_voltage_v = self._read_register_scaled(
+            self.bms_config.reg_pack_voltage,
+            scale=self.bms_config.pack_voltage_scale,
+        )
+        current_a = self._read_register_scaled(
+            self.bms_config.reg_current,
+            scale=self.bms_config.current_scale,
+            offset=self.bms_config.current_offset,
+        )
+        soc_pct = self._read_register_scaled(self.bms_config.reg_soc, scale=self.bms_config.soc_scale)
+        temperature_c = self._read_register_scaled(
+            self.bms_config.reg_temp,
+            scale=self.bms_config.temp_scale,
+            offset=self.bms_config.temp_offset,
+        )
 
         return Measurement(
             timestamp=datetime.utcnow(),

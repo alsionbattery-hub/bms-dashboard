@@ -183,9 +183,25 @@ export BMS_USE_MOCK=1
 ## API endpoints
 
 - `GET /` dashboard page (real-time cards + history chart)
-- `GET /api/live` latest measurement + analytics snapshot
+- `GET /api/live` latest measurement + analytics snapshot + poller fault status
 - `GET /api/history?limit=500` historical samples
 - `GET /api/analytics` efficiency metrics only
+
+## Runtime hardening knobs
+
+The poll loop now includes retry + exponential backoff and fault-state reporting.
+You can tune these with environment variables:
+
+- `BMS_RETRY_BASE_SEC` (default `1.0`)
+- `BMS_RETRY_MAX_SEC` (default `10.0`)
+
+The register map/scaling template can also be configured at runtime:
+
+- Register addresses: `BMS_REG_PACK_VOLTAGE`, `BMS_REG_CURRENT`, `BMS_REG_SOC`,
+  `BMS_REG_TEMP`, `BMS_REG_CELL_BASE`, `BMS_DEVICE_ID`
+- Scaling and offsets: `BMS_PACK_V_SCALE`, `BMS_CURRENT_SCALE`, `BMS_CURRENT_OFFSET`,
+  `BMS_SOC_SCALE`, `BMS_TEMP_SCALE`, `BMS_TEMP_OFFSET`, `BMS_CELL_V_SCALE`
+- Cell count: `BMS_CELL_COUNT`
 
 ## Protocol integration notes (important)
 
