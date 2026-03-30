@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 from .analytics import EnergyAccumulator
-from .models import AnalyticsSnapshot, Measurement, MeasurementWithAnalytics
+from .models import AnalyticsSnapshot, FaultState, Measurement, MeasurementWithAnalytics
 from .spi_bms import BMSReader
 from .storage import (
     AsyncSession,
@@ -22,6 +24,8 @@ from .storage import (
 
 POLL_INTERVAL_SEC = float(os.getenv("BMS_POLL_INTERVAL_SEC", "1.0"))
 USE_MOCK = os.getenv("BMS_USE_MOCK", "1") == "1"
+FAIL_RETRY_BASE_SEC = float(os.getenv("BMS_RETRY_BASE_SEC", "1.0"))
+FAIL_RETRY_MAX_SEC = float(os.getenv("BMS_RETRY_MAX_SEC", "10.0"))
 
 engine = make_engine(os.getenv("BMS_DB_PATH", "data/bms.db"))
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
@@ -29,19 +33,43 @@ reader = BMSReader(use_mock=USE_MOCK)
 accumulator = EnergyAccumulator()
 latest_measurement: Measurement | None = None
 latest_analytics = AnalyticsSnapshot()
+latest_fault = FaultState()
+logger = logging.getLogger("bms_dashboard")
 
 
 async def poll_bms_loop() -> None:
-    global latest_measurement, latest_analytics
+    global latest_measurement, latest_analytics, latest_fault
     reader.open()
+    consecutive_failures = 0
     try:
         while True:
-            m = reader.read_measurement()
-            latest_measurement = m
-            latest_analytics = accumulator.update(m)
-            async with SessionLocal() as session:
-                await insert_measurement(session, m)
-            await asyncio.sleep(POLL_INTERVAL_SEC)
+            try:
+                m = reader.read_measurement()
+                latest_measurement = m
+                latest_analytics = accumulator.update(m)
+                async with SessionLocal() as session:
+                    await insert_measurement(session, m)
+                consecutive_failures = 0
+                latest_fault = FaultState(status="ok", consecutive_failures=0, updated_at=datetime.utcnow())
+                await asyncio.sleep(POLL_INTERVAL_SEC)
+            except Exception as exc:
+                consecutive_failures += 1
+                sleep_s = min(FAIL_RETRY_BASE_SEC * (2 ** (consecutive_failures - 1)), FAIL_RETRY_MAX_SEC)
+                latest_fault = FaultState(
+                    status="degraded",
+                    consecutive_failures=consecutive_failures,
+                    last_error=str(exc),
+                    updated_at=datetime.utcnow(),
+                )
+                logger.warning(
+                    "bms_poll_failure",
+                    extra={
+                        "consecutive_failures": consecutive_failures,
+                        "retry_backoff_sec": sleep_s,
+                        "error": str(exc),
+                    },
+                )
+                await asyncio.sleep(sleep_s)
     finally:
         reader.close()
 
@@ -159,8 +187,8 @@ async def dashboard() -> str:
 @app.get("/api/live")
 async def api_live() -> dict:
     if latest_measurement is None:
-        return asdict(MeasurementWithAnalytics(measurement=Measurement(), analytics=latest_analytics))
-    return asdict(MeasurementWithAnalytics(measurement=latest_measurement, analytics=latest_analytics))
+        return asdict(MeasurementWithAnalytics(measurement=Measurement(), analytics=latest_analytics, fault=latest_fault))
+    return asdict(MeasurementWithAnalytics(measurement=latest_measurement, analytics=latest_analytics, fault=latest_fault))
 
 
 @app.get("/api/history")

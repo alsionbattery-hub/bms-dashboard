@@ -22,6 +22,15 @@ class AnalyticsSnapshot:
 
 
 @dataclass
+class FaultState:
+    status: str = "ok"
+    consecutive_failures: int = 0
+    last_error: str = ""
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass
 class MeasurementWithAnalytics:
     measurement: Measurement
     analytics: AnalyticsSnapshot
+    fault: FaultState = field(default_factory=FaultState)

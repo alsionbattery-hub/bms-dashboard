@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from bms_dashboard.analytics import EnergyAccumulator
 from bms_dashboard.models import Measurement
-from bms_dashboard.spi_bms import L99BM114Protocol
+from bms_dashboard.spi_bms import L99BM114Config, L99BM114Protocol
 
 
 def test_round_trip_efficiency():
@@ -49,3 +49,18 @@ def test_efficiency_is_bounded_to_100_pct():
     )
     assert snap.total_discharge_energy_wh == 20.0
     assert snap.round_trip_efficiency_pct == 100.0
+
+
+def test_l99bm114_config_can_be_loaded_from_environment(monkeypatch):
+    monkeypatch.setenv("BMS_DEVICE_ID", "3")
+    monkeypatch.setenv("BMS_REG_PACK_VOLTAGE", "0x40")
+    monkeypatch.setenv("BMS_CELL_COUNT", "12")
+    monkeypatch.setenv("BMS_CURRENT_OFFSET", "-6.25")
+    monkeypatch.setenv("BMS_CELL_V_SCALE", "0.005")
+
+    cfg = L99BM114Config.from_env()
+    assert cfg.device_id == 3
+    assert cfg.reg_pack_voltage == 0x40
+    assert cfg.cell_count == 12
+    assert cfg.current_offset == -6.25
+    assert cfg.cell_voltage_scale == 0.005
