@@ -87,7 +87,9 @@ async def dashboard() -> str:
       <div class=\"card\"><div class=\"label\">SOC</div><div class=\"value\" id=\"soc\">--</div></div>
       <div class=\"card\"><div class=\"label\">Efficiency</div><div class=\"value\" id=\"eff\">--</div></div>
     </div>
+
     <div class=\"chart\"><canvas id=\"hist\"></canvas></div>
+    <div class=\"chart\"><canvas id=\"cells\"></canvas></div>
 
     <script>
       const ctx = document.getElementById('hist').getContext('2d');
@@ -100,13 +102,37 @@ async def dashboard() -> str:
         options: { animation:false, scales:{x:{ticks:{color:'#cbd5e1'}}, y:{ticks:{color:'#cbd5e1'}}}, plugins:{legend:{labels:{color:'#e2e8f0'}}}}
       });
 
+      const cctx = document.getElementById('cells').getContext('2d');
+      const cellChart = new Chart(cctx, {
+        type: 'bar',
+        data: { labels: [], datasets: [{ label: 'Cell Voltage (V)', data: [], backgroundColor: '#34d399' }] },
+        options: {
+          animation: false,
+          scales: {
+            x: { ticks: { color: '#cbd5e1' } },
+            y: { ticks: { color: '#cbd5e1' }, suggestedMin: 2.5, suggestedMax: 4.3 }
+          },
+          plugins: { legend: { labels: { color: '#e2e8f0' } } }
+        }
+      });
+
+      function clamp(v, lo, hi) {
+        return Math.max(lo, Math.min(hi, v));
+      }
+
       async function refreshLive() {
         const r = await fetch('/api/live');
         const data = await r.json();
+        const eff = clamp(data.analytics.round_trip_efficiency_pct, 0, 100);
         document.getElementById('packV').textContent = `${data.measurement.pack_voltage_v.toFixed(2)} V`;
         document.getElementById('current').textContent = `${data.measurement.current_a.toFixed(2)} A`;
         document.getElementById('soc').textContent = `${data.measurement.soc_pct.toFixed(1)} %`;
-        document.getElementById('eff').textContent = `${data.analytics.round_trip_efficiency_pct.toFixed(1)} %`;
+        document.getElementById('eff').textContent = `${eff.toFixed(1)} %`;
+
+        const cells = data.measurement.cell_voltages_v || [];
+        cellChart.data.labels = cells.map((_, i) => `Cell ${i + 1}`);
+        cellChart.data.datasets[0].data = cells;
+        cellChart.update();
       }
 
       async function refreshHistory() {

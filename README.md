@@ -135,12 +135,22 @@ UM3423 and schematics before wiring:
 - `bms_dashboard/analytics.py` — energy accumulation and efficiency
 - `bms_dashboard/main.py` — FastAPI backend + built-in dashboard page
 
+## Build prerequisites (Raspberry Pi)
+
+`spidev` is a Python extension module and requires a C toolchain during build.
+Install compiler/build prerequisites before `pip install`:
+
+```bash
+sudo apt update
+sudo apt install -y gcc python3-dev build-essential
+```
+
 ## Quick start
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt  # includes greenlet for SQLAlchemy runtime
 uvicorn bms_dashboard.main:app --host 0.0.0.0 --port 8000
 ```
 

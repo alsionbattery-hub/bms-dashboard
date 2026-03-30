@@ -28,6 +28,9 @@ class EnergyAccumulator:
         if self.total_charge_energy_wh > 0:
             eff = 100.0 * self.total_discharge_energy_wh / self.total_charge_energy_wh
 
+        # Dashboard rule: efficiency must be bounded to [0, 100]%.
+        eff = max(0.0, min(100.0, eff))
+
         return AnalyticsSnapshot(
             total_charge_energy_wh=self.total_charge_energy_wh,
             total_discharge_energy_wh=self.total_discharge_energy_wh,

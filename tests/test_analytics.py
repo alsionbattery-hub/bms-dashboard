@@ -30,3 +30,22 @@ def test_l99bm114_protocol_crc_round_trip():
     frame = proto.build_read_frame(device_id=2, reg_addr=0x10)
     # Echo request bytes for deterministic validation.
     assert proto.decode_read_response(frame) == 0x00
+
+
+def test_efficiency_is_bounded_to_100_pct():
+    acc = EnergyAccumulator()
+    t0 = datetime(2026, 1, 1, 0, 0, 0)
+
+    # charge 10Wh
+    acc.update(Measurement(timestamp=t0, pack_voltage_v=10.0, current_a=-1.0, soc_pct=30, temperature_c=20))
+    snap = acc.update(
+        Measurement(timestamp=t0 + timedelta(hours=1), pack_voltage_v=10.0, current_a=-1.0, soc_pct=40, temperature_c=20)
+    )
+    assert snap.total_charge_energy_wh == 10.0
+
+    # then discharge 20Wh; unclamped value would be 200%
+    snap = acc.update(
+        Measurement(timestamp=t0 + timedelta(hours=2), pack_voltage_v=20.0, current_a=1.0, soc_pct=35, temperature_c=20)
+    )
+    assert snap.total_discharge_energy_wh == 20.0
+    assert snap.round_trip_efficiency_pct == 100.0
